@@ -17,6 +17,7 @@
 package com.android.internal.telephony;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.any;
@@ -189,5 +190,37 @@ public class WapPushOverSmsTest extends TelephonyTest {
 
         mWapPushOverSmsUT.dispatchWapPdu(pdu, null, mInboundSmsHandler, null, 0, 0L);
         assertEquals(2, WapPushCache.size());
+    }
+
+    @Test @SmallTest
+    public void testDispatchWapPdu_invalidHeaderLength_rejected() {
+        // Transaction ID, Push PDU type, header length uintvar, well-known MMS content type
+        byte[][] pdus = {
+                // 0x80000000, negative when narrowed to int
+                {0x01, 0x06, (byte) 0x88, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x00, (byte) 0xBE},
+                // 0x7FFFFFFF, too large to allocate
+                {0x01, 0x06, (byte) 0x87, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x7F, (byte) 0xBE},
+                // 0x7FFFFFFFF, maximum 5 octet uintvar
+                {0x01, 0x06, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x7F, (byte) 0xBE},
+                // 2, one octet past the end of the PDU
+                {0x01, 0x06, 0x02, (byte) 0xBE},
+        };
+
+        for (byte[] pdu : pdus) {
+            doReturn(new WspTypeDecoder(pdu)).when(mTelephonyComponentFactory)
+                    .makeWspTypeDecoder(nullable(byte[].class));
+
+            assertEquals(Telephony.Sms.Intents.RESULT_SMS_GENERIC_ERROR,
+                    mWapPushOverSmsUT.dispatchWapPdu(pdu, null, mInboundSmsHandler, null, 0, 0L));
+            assertFalse(mWapPushOverSmsUT.isWapPushForMms(pdu, mInboundSmsHandler));
+        }
+        verify(mInboundSmsHandler, never()).dispatchIntent(
+                any(Intent.class),
+                any(String.class),
+                any(String.class),
+                any(Bundle.class),
+                any(InboundSmsHandler.SmsBroadcastReceiver.class),
+                any(UserHandle.class),
+                anyInt());
     }
 }

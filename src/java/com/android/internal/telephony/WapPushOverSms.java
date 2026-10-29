@@ -214,8 +214,19 @@ public class WapPushOverSms implements ServiceConnection {
                 result.statusCode = Intents.RESULT_SMS_GENERIC_ERROR;
                 return result;
             }
-            int headerLength = (int) pduDecoder.getValue32();
+            long headerLengthValue = pduDecoder.getValue32();
             index += pduDecoder.getDecodedDataLength();
+
+            // A uintvar can encode up to 35 bits. Check it against the remaining PDU length before
+            // narrowing it to an int and using it as an array size, since a negative or huge value
+            // would otherwise throw an uncaught NegativeArraySizeException or OutOfMemoryError and
+            // crash the phone process.
+            if (headerLengthValue < 0 || headerLengthValue > pdu.length - index) {
+                Rlog.e(TAG, "Received PDU. Invalid header length: " + headerLengthValue);
+                result.statusCode = Intents.RESULT_SMS_GENERIC_ERROR;
+                return result;
+            }
+            int headerLength = (int) headerLengthValue;
 
             int headerStartIndex = index;
 
